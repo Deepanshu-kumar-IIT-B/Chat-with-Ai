@@ -3,11 +3,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Aura - Human AI Companion</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --sat: env(safe-area-inset-top);
+            --sar: env(safe-area-inset-right);
+            --sab: env(safe-area-inset-bottom);
+            --sal: env(safe-area-inset-left);
+        }
+
         html, body {
             height: 100%;
             width: 100%;
@@ -15,45 +22,91 @@
             padding: 0;
             overflow: hidden;
             font-family: 'Inter', sans-serif;
-            background: #f8fafc;
+            background: #ffffff;
+            -webkit-tap-highlight-color: transparent;
         }
         
         #root {
             height: 100%;
             width: 100%;
+            display: flex;
         }
 
         /* Custom Subtle Scrollbar */
         .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
+            width: 5px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
             background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-            background-color: rgba(0, 0, 0, 0.1);
-            border-radius: 20px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background-color: rgba(0, 0, 0, 0.2);
+            background-color: rgba(99, 102, 241, 0.2);
+            border-radius: 10px;
         }
         
         .scrollbar-hide::-webkit-scrollbar {
             display: none;
         }
-        .scrollbar-hide {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
+        
+        .pb-safe { padding-bottom: var(--sab); }
+        .pt-safe { padding-top: var(--sat); }
 
-        /* Animations */
-        @keyframes fadeIn {
+        /* Performance Optimized Animations */
+        @keyframes slideUp {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in {
-            animation: fadeIn 0.5s ease-out forwards;
+        .animate-slide-up {
+            animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+
+        @keyframes messagePop {
+            0% { opacity: 0; transform: translateY(20px) scale(0.9); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .animate-message-pop {
+            animation: messagePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            will-change: transform, opacity;
+        }
+
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+        }
+        .hover-glow:hover {
+            animation: pulse-glow 2s infinite;
+        }
+
+        /* Typing Dots Animation */
+        @keyframes typingDots {
+            0%, 100% { opacity: 0.3; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.1); }
+        }
+        .typing-dot {
+            animation: typingDots 1.2s infinite ease-in-out;
+        }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        /* Atmosphere Effects */
+        .effect-overlay {
+            position: absolute;
+            inset: 0;
+            transition: all 1s ease;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .effect-snow { background: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px); background-size: 20px 20px; animation: snowfall 10s linear infinite; }
+        @keyframes snowfall { from { background-position: 0 0; } to { background-position: 40px 100vh; } }
     </style>
 <script type="importmap">
 {

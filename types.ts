@@ -12,6 +12,10 @@ export interface Message {
   timestamp: Date;
   attachment?: MessageAttachment;
   reactions?: string[];
+  status?: 'sending' | 'sent' | 'read';
+  replyToId?: string;
+  isForwarded?: boolean;
+  isEdited?: boolean;
 }
 
 export interface ChatSession {
@@ -19,7 +23,8 @@ export interface ChatSession {
   title: string;
   messages: Message[];
   lastInteraction: Date;
-  aiCharacter?: AICharacter;
+  aiCharacter: AICharacter;
+  isPinned?: boolean;
 }
 
 export type ConversationPurpose = 'Casual Chat' | 'Emotional Support' | 'Study' | 'Motivation' | 'Deep Talk';
@@ -32,8 +37,26 @@ export interface UserProfile {
 }
 
 export interface AICharacter {
+  id: string;
   name: string;
   age: number;
   gender: string;
   traits: string[];
+}
+
+export interface AppDataExport {
+  sessions: ChatSession[];
+  savedPersonas: AICharacter[];
+  userProfile: UserProfile | null;
+}
+
+export type EffectType = 'weather' | 'energy' | 'magic' | 'festive' | 'cinematic' | 'nature' | 'none';
+
+export interface VisualEffect {
+  id: string;
+  name: string;
+  type: EffectType;
+  category: string;
+  className: string;
+  emoji: string;
 }
