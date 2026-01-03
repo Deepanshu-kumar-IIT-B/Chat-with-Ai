@@ -7,12 +7,32 @@
     <title>Aura - Human AI Companion</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+        // Prevent Flash of Unstyled Content (FOUC)
+        (function() {
+            const savedDarkMode = localStorage.getItem('aura_dark_mode');
+            if (savedDarkMode === 'true' || (!savedDarkMode && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        })();
+    </script>
     <style>
         :root {
             --sat: env(safe-area-inset-top);
             --sar: env(safe-area-inset-right);
             --sab: env(safe-area-inset-bottom);
             --sal: env(safe-area-inset-left);
+        }
+
+        /* Global Smooth Theme Transition */
+        html.dark body {
+            background-color: #020617; /* slate-950 */
+        }
+        body {
+            background-color: #ffffff;
+            transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         html, body {
@@ -22,7 +42,6 @@
             padding: 0;
             overflow: hidden;
             font-family: 'Inter', sans-serif;
-            background: #ffffff;
             -webkit-tap-highlight-color: transparent;
         }
         
@@ -69,11 +88,11 @@
         }
 
         @keyframes messagePop {
-            0% { opacity: 0; transform: translateY(20px) scale(0.9); }
+            0% { opacity: 0; transform: translateY(20px) scale(0.95); }
             100% { opacity: 1; transform: translateY(0) scale(1); }
         }
         .animate-message-pop {
-            animation: messagePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            animation: messagePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.1) forwards;
             will-change: transform, opacity;
         }
 
