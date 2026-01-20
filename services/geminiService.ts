@@ -74,10 +74,10 @@ export class GeminiService {
     onFileGenerated?: (attachment: MessageAttachment, type: 'image') => void,
     retryCount = 0
   ): Promise<string> {
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 2;
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Proactively switch to lite model if we've already hit a quota issue in this chain
+    // Fallback to flash-lite if primary model fails consistently
     const modelToUse = retryCount > 0 ? 'gemini-flash-lite-latest' : APP_MODELS.PRIMARY;
 
     const supportedMultimodalTypes = [
@@ -98,20 +98,53 @@ export class GeminiService {
     };
 
     try {
-      const contents = history.map(msg => {
+      // 1. Filter history: Remove placeholders and ensure valid content
+      // 2. Ensure alternating roles (User, Model, User, Model...)
+      const cleanHistory = history.filter(msg => 
+        msg.status !== 'sending' && (msg.content?.trim() || msg.attachment)
+      );
+
+      const contents: any[] = [];
+      let lastRole: string | null = null;
+
+      for (const msg of cleanHistory) {
+        const role = msg.role === 'model' ? 'model' : 'user';
+        
+        // Gemini requires alternating roles. If we have consecutive roles, merge or skip.
+        if (role === lastRole) continue; 
+
         const parts: any[] = [];
         if (msg.attachment && supportedMultimodalTypes.includes(msg.attachment.mimeType)) {
           parts.push({ inlineData: { mimeType: msg.attachment.mimeType, data: msg.attachment.data } });
         }
-        parts.unshift({ text: msg.content || " " });
-        return { role: msg.role === 'model' ? 'model' : 'user', parts };
-      });
+        
+        // Every turn must have at least one part. If no text and no attachment, skip.
+        if (!msg.content?.trim() && parts.length === 0) continue;
 
+        if (msg.content?.trim()) {
+          parts.unshift({ text: msg.content.trim() });
+        }
+
+        contents.push({ role, parts });
+        lastRole = role;
+      }
+
+      // Add the current user turn
       const currentParts: any[] = [];
       if (attachment && supportedMultimodalTypes.includes(attachment.mimeType)) {
         currentParts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.data } });
       }
-      currentParts.unshift({ text: currentMessage || " " });
+      
+      // Ensure we have text even if it's just a space, but preferably meaningful
+      currentParts.unshift({ text: currentMessage.trim() || " " });
+
+      // Check if the last turn in history was a user turn. 
+      // If it was, we might need to "fix" the sequence by adding a dummy model response 
+      // or merging, but usually filtering history handles this.
+      if (lastRole === 'user') {
+        contents.push({ role: 'model', parts: [{ text: "..." }] });
+      }
+
       contents.push({ role: 'user', parts: currentParts });
 
       const responseStream = await ai.models.generateContentStream({
@@ -119,7 +152,7 @@ export class GeminiService {
         contents: contents,
         config: {
           systemInstruction: this.getInstruction(userProfile, aiCharacter),
-          temperature: 0.8,
+          temperature: 0.9,
           topP: 0.95,
           tools: [{ functionDeclarations: [generateImageTool] }]
         },
@@ -133,7 +166,7 @@ export class GeminiService {
               try {
                 const img = await this.generateImage(fc.args.prompt as string);
                 onFileGenerated(img, 'image');
-              } catch (e) { console.error("Image gen error", e); }
+              } catch (e) { console.error("Image generation failed", e); }
             }
           }
         }
@@ -143,20 +176,18 @@ export class GeminiService {
       }
       return fullText;
     } catch (error: any) {
+      console.error("Gemini API stream error:", error);
       const errStr = String(error).toLowerCase();
-      const isQuotaError = errStr.includes("429") || errStr.includes("quota") || errStr.includes("exhausted");
+      
+      // Handle the specific "status code 0" or 500 error with retries
+      const shouldRetry = (errStr.includes("429") || errStr.includes("quota") || errStr.includes("500") || errStr.includes("code: 0")) && retryCount < MAX_RETRIES;
 
-      if (isQuotaError && retryCount < MAX_RETRIES) {
-        // Exponential backoff: 2s, 4s, 8s
+      if (shouldRetry) {
         const delay = Math.pow(2, retryCount) * 2000;
         await new Promise(resolve => setTimeout(resolve, delay));
-        
-        // Reset the chunk for the UI on retry to avoid double text if possible
-        // though stream behavior depends on where it failed.
         return this.streamMessage(history, currentMessage, userProfile, aiCharacter, attachment, onChunk, onFileGenerated, retryCount + 1);
       }
 
-      console.error("Gemini API Error:", error);
       throw error;
     }
   }

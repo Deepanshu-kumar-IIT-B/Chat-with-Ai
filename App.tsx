@@ -31,7 +31,12 @@ import {
   CheckCircle2,
   Home,
   Moon,
-  Sun
+  Sun,
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  Maximize2,
+  Download
 } from 'lucide-react';
 
 const DEFAULT_PERSONAS: AICharacter[] = [
@@ -113,7 +118,7 @@ const compressAndResize = (file: File): Promise<MessageAttachment> => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         resolve({
           mimeType: 'image/jpeg',
           data: dataUrl.split(',')[1],
@@ -126,9 +131,14 @@ const compressAndResize = (file: File): Promise<MessageAttachment> => {
   });
 };
 
-const AttachmentRenderer: React.FC<{ attachment: MessageAttachment, onMediaLoad?: () => void }> = memo(({ attachment, onMediaLoad }) => {
+const AttachmentRenderer: React.FC<{ 
+  attachment: MessageAttachment, 
+  onMediaLoad?: () => void,
+  onImageClick?: (url: string) => void
+}> = memo(({ attachment, onMediaLoad, onImageClick }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const src = useMemo(() => attachment.data ? (attachment.data.startsWith('http') ? attachment.data : `data:${attachment.mimeType};base64,${attachment.data}`) : null, [attachment.data, attachment.mimeType]);
+  
   const handleLoad = useCallback(() => {
     setIsLoaded(true);
     onMediaLoad?.();
@@ -136,7 +146,10 @@ const AttachmentRenderer: React.FC<{ attachment: MessageAttachment, onMediaLoad?
   
   if (attachment.mimeType.startsWith('image/')) {
     return (
-      <div className="relative media-container bg-slate-100 dark:bg-slate-800 rounded-[2.5rem] overflow-hidden min-h-[160px] w-full max-w-[400px]">
+      <div 
+        className="relative media-container bg-slate-100 dark:bg-slate-800 rounded-[2.5rem] overflow-hidden min-h-[160px] w-full max-w-[400px] cursor-pointer hover:brightness-95 transition-all"
+        onClick={() => src && onImageClick?.(src)}
+      >
         {(!isLoaded || !src) && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-50 dark:bg-slate-800">
             <Loader2 className="animate-spin text-indigo-400" size={32} />
@@ -151,6 +164,9 @@ const AttachmentRenderer: React.FC<{ attachment: MessageAttachment, onMediaLoad?
             className={`w-full h-auto object-cover transition-opacity duration-500 ${isLoaded ? 'opacity-100' : 'opacity-0'}`} 
           />
         )}
+        <div className="absolute bottom-4 right-4 bg-black/30 backdrop-blur-md p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity">
+          <Maximize2 size={16} />
+        </div>
       </div>
     );
   }
@@ -162,7 +178,7 @@ const AttachmentRenderer: React.FC<{ attachment: MessageAttachment, onMediaLoad?
   );
 });
 
-const MessageItem = memo(({ msg, isOwn, onContextMenu, onReact, replyToContent, onMediaLoad }: any) => {
+const MessageItem = memo(({ msg, isOwn, onContextMenu, onReact, replyToContent, onMediaLoad, onImageClick }: any) => {
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   
   const handleReactionClick = (emoji: string) => {
@@ -224,7 +240,7 @@ const MessageItem = memo(({ msg, isOwn, onContextMenu, onReact, replyToContent, 
         </div>
 
         <div className={`px-7 py-5 rounded-[4rem] text-sm lg:text-base font-medium shadow-sm ring-1 ring-inset ${isOwn ? 'bg-indigo-600 text-white rounded-tr-[1.2rem] ring-indigo-500/10' : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-100/50 dark:border-slate-700/50 rounded-tl-[1.2rem] ring-slate-100 dark:ring-slate-800'}`}>
-          {msg.attachment && <div className="mb-3"><AttachmentRenderer attachment={msg.attachment} onMediaLoad={onMediaLoad} /></div>}
+          {msg.attachment && <div className="mb-3"><AttachmentRenderer attachment={msg.attachment} onMediaLoad={onMediaLoad} onImageClick={onImageClick} /></div>}
           
           {msg.content ? (
             <p className="whitespace-pre-wrap break-words leading-relaxed animate-fade-in">{msg.content}</p>
@@ -321,6 +337,7 @@ const App: React.FC = () => {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [savedPersonas, setSavedPersonas] = useState<AICharacter[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [personaToDelete, setPersonaToDelete] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState<MessageAttachment | null>(null);
@@ -332,6 +349,9 @@ const App: React.FC = () => {
   const [profileForm, setProfileForm] = useState<UserProfile>({ name: 'Guest', age: '25', gender: 'Secret', purpose: 'Casual Chat' });
   const [aiSetupForm, setAiSetupForm] = useState({ id: '', name: '', age: '22', gender: 'Female', traits: '' });
   
+  const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const [isImageTransitioning, setIsImageTransitioning] = useState(false);
+
   const isHydrated = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -345,7 +365,15 @@ const App: React.FC = () => {
   const currentSession = useMemo(() => sessions.find(s => s.id === currentSessionId), [sessions, currentSessionId]);
   const activeAICharacter = useMemo(() => currentSession?.aiCharacter || savedPersonas[0] || DEFAULT_PERSONAS[0], [currentSession, savedPersonas]);
 
-  // Handle Dark Mode persistence and class toggling
+  const galleryImages = useMemo(() => {
+    if (!currentSession) return [];
+    return currentSession.messages
+      .filter(m => m.attachment?.mimeType.startsWith('image/'))
+      .map(m => m.attachment!.data.startsWith('http') ? m.attachment!.data : `data:${m.attachment!.mimeType};base64,${m.attachment!.data}`);
+  }, [currentSession]);
+
+  const currentImageIndex = useMemo(() => galleryImages.indexOf(viewerImage || ''), [galleryImages, viewerImage]);
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -366,10 +394,17 @@ const App: React.FC = () => {
     if (savedPersonasData) {
       try { 
         const parsed = JSON.parse(savedPersonasData);
-        if (parsed && Array.isArray(parsed) && parsed.length > 0) setSavedPersonas(parsed);
-        else setSavedPersonas(DEFAULT_PERSONAS);
+        if (parsed && Array.isArray(parsed)) {
+          if (parsed.length > 0) setSavedPersonas(parsed);
+          else if (localStorage.getItem('aura_personas_initialized') !== 'true') setSavedPersonas(DEFAULT_PERSONAS);
+          else setSavedPersonas([]);
+        } else {
+          setSavedPersonas(DEFAULT_PERSONAS);
+        }
       } catch (e) { setSavedPersonas(DEFAULT_PERSONAS); }
-    } else setSavedPersonas(DEFAULT_PERSONAS);
+    } else {
+      setSavedPersonas(DEFAULT_PERSONAS);
+    }
 
     if (savedSessions) {
       try {
@@ -429,6 +464,7 @@ const App: React.FC = () => {
     if (!isHydrated.current) return;
     localStorage.setItem('aura_sessions', JSON.stringify(sessions));
     localStorage.setItem('aura_personas', JSON.stringify(savedPersonas));
+    localStorage.setItem('aura_personas_initialized', 'true');
     if (userProfile) localStorage.setItem('aura_profile', JSON.stringify(userProfile));
     
     setShowSaveIndicator(true);
@@ -439,13 +475,9 @@ const App: React.FC = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       backgroundSave();
-    }, 180000); // Save every 3 minutes
+    }, 180000); 
     return () => clearInterval(interval);
   }, [backgroundSave]);
-
-  useEffect(() => { if (isHydrated.current) localStorage.setItem('aura_sessions', JSON.stringify(sessions)); }, [sessions]);
-  useEffect(() => { if (isHydrated.current) localStorage.setItem('aura_personas', JSON.stringify(savedPersonas)); }, [savedPersonas]);
-  useEffect(() => { if (isHydrated.current && userProfile) localStorage.setItem('aura_profile', JSON.stringify(userProfile)); }, [userProfile]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     if (scrollContainerRef.current) {
@@ -475,6 +507,12 @@ const App: React.FC = () => {
     if ((!text.trim() && !attachment) || isLoading || !currentSessionId) return;
     
     const sessionId = currentSessionId;
+    const sessionToUpdate = sessions.find(s => s.id === sessionId);
+    if (!sessionToUpdate) return;
+
+    // Use a reference to history BEFORE adding the current turns to avoid double turns in the API call
+    const historyBeforeNewMessage = [...sessionToUpdate.messages];
+
     const userMsg: Message | null = isProactiveNudge ? null : { 
       id: generateId(), 
       role: 'user', 
@@ -509,14 +547,16 @@ const App: React.FC = () => {
     setIsLoading(true); 
 
     try {
-      const updatedSession = sessions.find(s => s.id === sessionId);
-      const historyForAI = userMsg ? [...(updatedSession?.messages || []), userMsg] : [...(updatedSession?.messages || [])];
       const nudgePrompt = isProactiveNudge 
-        ? "(User is inactive after your last message. Send a very short, natural check-in nudge in Hinglish like 'Kahan ho yaar?' or 'Ghum ho gaye?'. Be indistinguishable from a human friend.)"
-        : "";
+        ? "(User is inactive. Send a very short, natural Hinglish check-in like 'Kya hua? So gaye?' or 'Kahan chale gaye yaar?'. Keep it under 10 words.)"
+        : text;
 
       await geminiService.streamMessage(
-        historyForAI, nudgePrompt, userProfile, activeAICharacter, null, 
+        historyBeforeNewMessage, 
+        nudgePrompt, 
+        userProfile, 
+        activeAICharacter, 
+        attachment, 
         (chunk) => {
           setSessions(prev => prev.map(s => s.id === sessionId ? {
             ...s,
@@ -535,11 +575,14 @@ const App: React.FC = () => {
         messages: s.messages.map(m => m.id === aiMsgId ? { ...m, status: 'read' } : m)
       } : s));
     } catch (error: any) {
+      console.error("Chat flow error:", error);
       const errStr = String(error).toLowerCase();
       const isQuota = errStr.includes("429") || errStr.includes("quota") || errStr.includes("exhausted");
-      const errorMessage = isQuota 
-        ? "Yaar, main thoda thak gayi hoon, bohot log baat kar rahe hain. 1-2 minute baad try karo please? ❤️" 
-        : "Network error! Phir se try karo please.";
+      const isServerErr = errStr.includes("500") || errStr.includes("code: 0");
+      
+      let errorMessage = "Phas gaya network! Phir se try karo please.";
+      if (isQuota) errorMessage = "Yaar, main thoda thak gayi hoon, thodi der mein baat karein? ❤️";
+      if (isServerErr) errorMessage = "Arre, servers thoda ghum gaye hain. Ek baar phir try karo na? ✨";
 
       setSessions(prev => prev.map(s => s.id === sessionId ? {
         ...s,
@@ -564,7 +607,7 @@ const App: React.FC = () => {
       inactivityTimerRef.current = setTimeout(() => {
         handleSendMessage("", undefined, true);
         backgroundSave();
-      }, 45000); 
+      }, 60000); // 1 minute nudge
     } else {
       if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     }
@@ -607,11 +650,15 @@ const App: React.FC = () => {
     e.stopPropagation();
     if (messageContextMenu && currentSessionId) {
       const targetId = messageContextMenu.message.id;
-      setSessions(prev => prev.map(s => 
-        s.id === currentSessionId 
-          ? { ...s, messages: s.messages.filter(m => m.id !== targetId) } 
-          : s
-      ));
+      setSessions(prev => {
+        const updated = prev.map(s => 
+          s.id === currentSessionId 
+            ? { ...s, messages: s.messages.filter(m => m.id !== targetId) } 
+            : s
+        );
+        localStorage.setItem('aura_sessions', JSON.stringify(updated));
+        return updated;
+      });
       setMessageContextMenu(null);
     }
   };
@@ -623,13 +670,17 @@ const App: React.FC = () => {
     } else {
         const newSession: ChatSession = { 
             id: generateId(), 
-            title: persona.name + ' Session', 
+            title: persona.name, 
             messages: [], 
             lastInteraction: new Date(), 
             aiCharacter: persona, 
             isPinned: false 
         };
-        setSessions(prev => [...prev, newSession]); 
+        setSessions(prev => {
+          const updated = [...prev, newSession];
+          localStorage.setItem('aura_sessions', JSON.stringify(updated));
+          return updated;
+        }); 
         setCurrentSessionId(newSession.id);
     }
     setIsAwaitingStart(false); 
@@ -642,8 +693,66 @@ const App: React.FC = () => {
   };
 
   const deletePersona = (id: string) => {
-    if (confirm(`Are you sure you want to delete this persona?`)) {
-      setSavedPersonas(prev => prev.filter(x => x.id !== id));
+    setPersonaToDelete(id);
+  };
+
+  const confirmDeletePersona = () => {
+    const id = personaToDelete;
+    if (!id) return;
+    try {
+      let updatedPersonas: AICharacter[] = [];
+      let updatedSessions: ChatSession[] = [];
+
+      setSavedPersonas(prev => {
+        updatedPersonas = prev.filter(x => x.id !== id);
+        localStorage.setItem('aura_personas', JSON.stringify(updatedPersonas));
+        localStorage.setItem('aura_personas_initialized', 'true');
+        return updatedPersonas;
+      });
+
+      setSessions(prev => {
+        updatedSessions = prev.filter(s => s.aiCharacter.id !== id);
+        localStorage.setItem('aura_sessions', JSON.stringify(updatedSessions));
+        return updatedSessions;
+      });
+
+      if (activeAICharacter?.id === id || currentSession?.aiCharacter.id === id) {
+        setCurrentSessionId(null);
+        setIsAwaitingStart(true);
+      }
+      
+      setPersonaToDelete(null);
+      setIsAISetupOpen(false);
+      setIsHeaderMenuOpen(false);
+      setShowSaveIndicator(true);
+      setTimeout(() => setShowSaveIndicator(false), 1500);
+    } catch (err) {
+      alert("Error deleting persona. Please try again.");
+    }
+  };
+
+  const deleteSession = (sessionId: string) => {
+    try {
+      const session = sessions.find(s => s.id === sessionId);
+      if (!session) return;
+      
+      if (window.confirm(`Delete conversation with ${session.aiCharacter.name}? All messages will be erased forever.`)) {
+        setSessions(prev => {
+          const updated = prev.filter(s => s.id !== sessionId);
+          localStorage.setItem('aura_sessions', JSON.stringify(updated));
+          return updated;
+        });
+
+        if (currentSessionId === sessionId) {
+          setCurrentSessionId(null);
+          setIsAwaitingStart(true);
+        }
+
+        setShowSaveIndicator(true);
+        setTimeout(() => setShowSaveIndicator(false), 1500);
+      }
+    } catch (err) {
+      alert("Failed to delete conversation.");
     }
   };
 
@@ -659,13 +768,39 @@ const App: React.FC = () => {
     };
 
     if (aiSetupForm.id) {
-      setSavedPersonas(prev => prev.map(p => p.id === aiSetupForm.id ? newPersona : p));
-      setSessions(prev => prev.map(s => s.aiCharacter.id === aiSetupForm.id ? { ...s, aiCharacter: newPersona } : s));
+      setSavedPersonas(prev => {
+        const updated = prev.map(p => p.id === aiSetupForm.id ? newPersona : p);
+        localStorage.setItem('aura_personas', JSON.stringify(updated));
+        localStorage.setItem('aura_personas_initialized', 'true');
+        return updated;
+      });
+      setSessions(prev => {
+        const updated = prev.map(s => s.aiCharacter.id === aiSetupForm.id ? { ...s, aiCharacter: newPersona } : s);
+        localStorage.setItem('aura_sessions', JSON.stringify(updated));
+        return updated;
+      });
     } else {
-      setSavedPersonas(prev => [...prev, newPersona]);
+      setSavedPersonas(prev => {
+        const updated = [...prev, newPersona];
+        localStorage.setItem('aura_personas', JSON.stringify(updated));
+        localStorage.setItem('aura_personas_initialized', 'true');
+        return updated;
+      });
     }
 
     setIsAISetupOpen(false);
+  };
+
+  const navigateGallery = (direction: 'next' | 'prev') => {
+    if (isImageTransitioning) return;
+    setIsImageTransitioning(true);
+    setTimeout(() => {
+      let nextIndex = direction === 'next' ? currentImageIndex + 1 : currentImageIndex - 1;
+      if (nextIndex >= galleryImages.length) nextIndex = 0;
+      if (nextIndex < 0) nextIndex = galleryImages.length - 1;
+      setViewerImage(galleryImages[nextIndex]);
+      setIsImageTransitioning(false);
+    }, 200);
   };
 
   return (
@@ -673,7 +808,7 @@ const App: React.FC = () => {
       {activeEffect && <div className="fixed inset-0 pointer-events-none z-[40]"><div className={`effect-overlay effect-overlay-${activeEffect.id}`}></div></div>}
 
       <div className={`fixed bottom-24 right-6 z-[2000] px-4 py-2 bg-slate-900/80 dark:bg-indigo-600/80 backdrop-blur-md text-white rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all duration-500 transform-gpu ${showSaveIndicator ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
-        <CheckCircle2 size={14} /> Saved in Background
+        <CheckCircle2 size={14} /> Synced to LocalStorage
       </div>
 
       {isAwaitingStart ? (
@@ -767,7 +902,7 @@ const App: React.FC = () => {
           <aside className={`fixed lg:static z-[100] inset-y-0 left-0 w-[280px] sm:w-80 bg-white dark:bg-slate-950 border-r border-slate-50 dark:border-slate-900 flex flex-col transition-transform duration-300 transform-gpu pt-safe ${isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'}`}>
             <div className="p-8 flex items-center justify-between">
               <div onClick={() => setIsAwaitingStart(true)} className="flex items-center gap-3 font-black text-3xl text-indigo-600 tracking-tighter cursor-pointer hover:scale-105 transition-transform"><Sparkles size={28} fill="currentColor" /><span>Aura</span></div>
-              <button className="lg:hidden p-3 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-2xl" onClick={() => setIsSidebarOpen(false)}><X size={28} /></button>
+              <button className="lg:hidden p-3 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl" onClick={() => setIsSidebarOpen(false)}><X size={28} /></button>
             </div>
             <div className="px-6 mb-8"><Button className="w-full h-16 rounded-[1.5rem] bg-slate-900 dark:bg-indigo-600 text-white font-black text-xs tracking-widest gap-4 shadow-xl active:scale-95" onClick={() => setIsAwaitingStart(true)}><Plus size={20} /> ALL CHARS</Button></div>
             <div className="flex-1 overflow-y-auto px-4 custom-scrollbar space-y-2">
@@ -775,7 +910,7 @@ const App: React.FC = () => {
                 <div key={s.id} onClick={() => { setCurrentSessionId(s.id); setIsSidebarOpen(false); setIsAwaitingStart(false); }} className={`group px-5 py-5 rounded-[2rem] cursor-pointer flex items-center gap-5 transition-all ${currentSessionId === s.id ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 ring-2 ring-indigo-100 dark:ring-indigo-900/40 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/60'}`}>
                   <div className={`w-12 h-12 rounded-[1.5rem] flex items-center justify-center font-black text-sm ${currentSessionId === s.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-900'}`}>{s.aiCharacter.name[0]}</div>
                   <div className="flex-1 min-w-0 text-sm font-black truncate uppercase tracking-widest">{s.title}</div>
-                  <button onClick={(e) => { e.stopPropagation(); if (confirm(`End session with ${s.aiCharacter.name}?`)) { setSessions(prev => prev.filter(x => x.id !== s.id)); if (currentSessionId === s.id) setCurrentSessionId(null); } }} className="opacity-0 group-hover:opacity-100 p-2.5 hover:bg-red-50 dark:hover:bg-red-900/40 hover:text-red-600 dark:hover:text-red-400 rounded-2xl transition-all"><Trash2 size={18} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} className="opacity-0 group-hover:opacity-100 p-2.5 hover:bg-red-50 dark:hover:bg-red-900/40 hover:text-red-600 dark:hover:text-red-400 rounded-2xl transition-all"><Trash2 size={18} /></button>
                 </div>
               ))}
             </div>
@@ -808,7 +943,10 @@ const App: React.FC = () => {
                     <MoreVertical size={24} />
                     {isHeaderMenuOpen && (
                       <div className="absolute top-full right-0 mt-3 w-56 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-[1.5rem] shadow-4xl py-2 z-[200] animate-slide-up ring-1 ring-slate-100 dark:ring-slate-700">
-                        <button onClick={() => { const data: AppDataExport = { sessions, savedPersonas, userProfile }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `aura-export-${new Date().getTime()}.json`; a.click(); setIsHeaderMenuOpen(false); }} className="w-full px-5 py-4 flex items-center gap-4 text-slate-600 dark:text-slate-400 text-xs font-black uppercase tracking-widest hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"><Save size={18} /> Export Data</button>
+                        <button onClick={() => { const data: AppDataExport = { sessions, savedPersonas, userProfile }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `aura-export-${new Date().getTime()}.json`; a.click(); setIsHeaderMenuOpen(false); }} className="w-full px-5 py-4 flex items-center gap-4 text-slate-600 dark:text-slate-400 text-xs font-black uppercase tracking-widest hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors border-b border-slate-100 dark:border-slate-700"><Save size={18} /> Export Data</button>
+                        {currentSession && (
+                          <button onClick={() => deletePersona(currentSession.aiCharacter.id)} className="w-full px-5 py-4 flex items-center gap-4 text-red-500 text-xs font-black uppercase tracking-widest hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"><Trash2 size={18} /> Delete Character</button>
+                        )}
                       </div>
                     )}
                  </button>
@@ -818,13 +956,49 @@ const App: React.FC = () => {
             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-8 custom-scrollbar bg-white dark:bg-slate-950" style={{ contain: 'layout' }}>
               <div className="max-w-4xl mx-auto flex flex-col space-y-10 lg:px-12">
                 {currentSession?.messages.map((msg) => (
-                  <MessageItem key={msg.id} msg={msg} isOwn={msg.role === 'user'} onContextMenu={(e: React.MouseEvent, m: Message) => setMessageContextMenu({ x: e.clientX, y: e.clientY, message: m })} onReact={handleReactToMessage} replyToContent={msg.replyToId ? currentSession.messages.find(m => m.id === msg.replyToId)?.content : null} onMediaLoad={() => scrollToBottom('auto')} />
+                  <MessageItem 
+                    key={msg.id} 
+                    msg={msg} 
+                    isOwn={msg.role === 'user'} 
+                    onContextMenu={(e: React.MouseEvent, m: Message) => setMessageContextMenu({ x: e.clientX, y: e.clientY, message: m })} 
+                    onReact={handleReactToMessage} 
+                    replyToContent={msg.replyToId ? currentSession.messages.find(m => m.id === msg.replyToId)?.content : null} 
+                    onMediaLoad={() => scrollToBottom('auto')} 
+                    onImageClick={(url: string) => setViewerImage(url)}
+                  />
                 ))}
                 <div className="h-8 w-full shrink-0" />
               </div>
             </div>
 
             <div className="shrink-0 p-4 lg:p-6 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-900 z-[100] pb-safe relative transition-colors duration-400">
+              
+              {selectedAttachment && (
+                <div className="max-w-4xl mx-auto mb-4 animate-slide-up">
+                  <div className="relative inline-block group">
+                    <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-indigo-100 dark:border-indigo-900 shadow-xl bg-slate-50 dark:bg-slate-800">
+                      {selectedAttachment.mimeType.startsWith('image/') ? (
+                        <img 
+                          src={`data:${selectedAttachment.mimeType};base64,${selectedAttachment.data}`} 
+                          className="w-full h-full object-cover" 
+                          alt="Preview" 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-indigo-500">
+                          <FileText size={32} />
+                        </div>
+                      )}
+                    </div>
+                    <button 
+                      onClick={() => setSelectedAttachment(null)}
+                      className="absolute -top-3 -right-3 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 active:scale-90 transition-all ring-4 ring-white dark:ring-slate-950"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {isEmojiPickerOpen && (
                 <div ref={emojiPickerRef} className="absolute bottom-full left-4 right-4 mb-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[2.5rem] shadow-4xl p-6 z-[200] max-h-[400px] overflow-y-auto custom-scrollbar animate-slide-up ring-1 ring-slate-100 dark:ring-slate-800">
                   <div className="flex items-center justify-between mb-6 px-2 sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md pb-4 border-b border-slate-50 dark:border-slate-800">
@@ -860,7 +1034,7 @@ const App: React.FC = () => {
                 <div className="flex items-center justify-between gap-2 lg:gap-5">
                   <div className="flex-none flex items-center gap-2">
                     <button onClick={() => fileInputRef.current?.click()} className="h-14 w-14 flex items-center justify-center rounded-full bg-slate-50 dark:bg-slate-900 text-slate-400 hover:text-indigo-600 hover:bg-white dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800 active:scale-90 transition-all shadow-sm" title="Upload Photo"><Paperclip size={22} /></button>
-                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) compressAndResize(file).then(setSelectedAttachment); }} accept="image/*,audio/*" />
+                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) compressAndResize(file).then(setSelectedAttachment); }} accept="image/*" />
                   </div>
                   <div className="flex-1 flex items-center bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[2.5rem] px-5 shadow-inner focus-within:bg-white dark:focus-within:bg-slate-800 focus-within:ring-2 focus-within:ring-indigo-100 dark:focus-within:ring-indigo-900 transition-all min-h-[56px] lg:min-h-[64px]">
                     <button onClick={() => setIsEmojiPickerOpen(!isEmojiPickerOpen)} className={`mr-3 transition-colors ${isEmojiPickerOpen ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'}`}><Smile size={24} /></button>
@@ -893,6 +1067,71 @@ const App: React.FC = () => {
           <button onClick={handleActionDelete} className="w-full px-6 py-5 flex items-center gap-4 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/40 text-sm font-black uppercase tracking-widest transition-colors">
             <Trash2 size={20} className="text-red-500" /> Delete
           </button>
+        </div>
+      )}
+
+      {viewerImage && (
+        <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-3xl flex flex-col animate-fade-in overflow-hidden touch-none">
+          <div className="flex items-center justify-between p-6 z-[5001]">
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setViewerImage(null)}
+                className="w-12 h-12 flex items-center justify-center bg-white/10 text-white rounded-full hover:bg-white/20 active:scale-90 transition-all"
+              >
+                <X size={24} />
+              </button>
+              <div className="text-white">
+                <p className="font-black uppercase tracking-widest text-[10px] opacity-60">Media Viewer</p>
+                <p className="font-bold text-xs">{currentImageIndex + 1} of {galleryImages.length}</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+               <a 
+                href={viewerImage} 
+                download={`aura-media-${Date.now()}.jpg`}
+                className="w-12 h-12 flex items-center justify-center bg-white/10 text-white rounded-full hover:bg-white/20 active:scale-90 transition-all"
+               >
+                  <Download size={22} />
+               </a>
+            </div>
+          </div>
+
+          <div className="flex-1 relative flex items-center justify-center">
+            <button 
+              onClick={() => navigateGallery('prev')}
+              className="absolute left-6 w-16 h-16 flex items-center justify-center bg-white/5 text-white rounded-full hover:bg-white/10 active:scale-90 transition-all z-[5002] border border-white/10"
+            >
+              <ChevronLeft size={32} />
+            </button>
+            
+            <div className={`relative max-w-full max-h-[85vh] transition-all duration-300 transform ${isImageTransitioning ? 'scale-95 opacity-0' : 'scale-100 opacity-100'}`}>
+               <img 
+                src={viewerImage} 
+                className="w-full h-full object-contain shadow-2xl rounded-lg pointer-events-auto" 
+                alt="Full View" 
+                onDoubleClick={() => setViewerImage(null)}
+               />
+            </div>
+
+            <button 
+              onClick={() => navigateGallery('next')}
+              className="absolute right-6 w-16 h-16 flex items-center justify-center bg-white/5 text-white rounded-full hover:bg-white/10 active:scale-90 transition-all z-[5002] border border-white/10"
+            >
+              <ChevronRight size={32} />
+            </button>
+          </div>
+
+          <div className="h-28 shrink-0 flex items-center gap-2 px-6 overflow-x-auto scrollbar-hide bg-white/5 backdrop-blur-xl border-t border-white/10">
+            {galleryImages.map((img, i) => (
+              <button 
+                key={i} 
+                onClick={() => setViewerImage(img)}
+                className={`w-16 h-16 rounded-xl overflow-hidden shrink-0 transition-all duration-300 border-2 ${viewerImage === img ? 'border-indigo-500 scale-110 shadow-lg' : 'border-transparent opacity-40 hover:opacity-100'}`}
+              >
+                <img src={img} className="w-full h-full object-cover" alt="Thumb" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -950,8 +1189,39 @@ const App: React.FC = () => {
                   <p className="text-[10px] font-black uppercase text-indigo-400 tracking-[0.2em] px-6">Core Traits (comma separated)</p>
                   <textarea rows={3} className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-[2.5rem] px-10 py-6 font-bold text-slate-900 dark:text-white resize-none outline-none focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-800 transition-all shadow-inner" placeholder="Witty, Empathetic, Creative..." value={aiSetupForm.traits} onChange={e => setAiSetupForm({...aiSetupForm, traits: e.target.value})} />
                 </div>
-                <Button type="submit" className="w-full h-22 rounded-[2.5rem] font-black text-2xl bg-slate-900 dark:bg-indigo-600 text-white shadow-2xl uppercase tracking-tighter active:scale-95">CONFIRM IDENTITY</Button>
+                <div className="flex gap-4">
+                  <Button type="submit" className="flex-1 h-20 rounded-[2.5rem] font-black text-xl bg-slate-900 dark:bg-indigo-600 text-white shadow-2xl uppercase tracking-tighter active:scale-95">CONFIRM</Button>
+                  {aiSetupForm.id && (
+                    <Button 
+                      type="button" 
+                      variant="danger" 
+                      className="flex-1 h-20 rounded-[2.5rem] font-black text-xl uppercase tracking-tighter active:scale-95" 
+                      onClick={() => deletePersona(aiSetupForm.id)}
+                    >
+                      DELETE
+                    </Button>
+                  )}
+                </div>
              </form>
+          </div>
+        </div>
+      )}
+
+      {personaToDelete && (
+        <div className="fixed inset-0 z-[2500] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl" onClick={() => setPersonaToDelete(null)} />
+          <div className="relative bg-white dark:bg-slate-900 w-full max-md rounded-[3rem] shadow-4xl p-10 animate-slide-up border border-slate-100 dark:border-slate-800 text-center">
+            <div className="w-20 h-20 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center text-red-600 dark:text-red-400 mx-auto mb-8">
+              <AlertTriangle size={40} />
+            </div>
+            <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-4 tracking-tight">Delete Character?</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-10 leading-relaxed">
+              Are you sure you want to delete this persona? <span className="text-red-500 font-bold underline">This cannot be undone.</span>
+            </p>
+            <div className="flex flex-col gap-3">
+              <Button variant="danger" className="w-full h-16 rounded-[1.5rem] font-black uppercase tracking-widest text-xs" onClick={confirmDeletePersona}>Yes, Delete Everything</Button>
+              <Button variant="secondary" className="w-full h-16 rounded-[1.5rem] font-black uppercase tracking-widest text-xs" onClick={() => setPersonaToDelete(null)}>Cancel</Button>
+            </div>
           </div>
         </div>
       )}
