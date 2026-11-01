@@ -32,9 +32,9 @@ export class GeminiService {
   async generateImage(prompt: string, retryCount = 0): Promise<MessageAttachment> {
     const MAX_RETRIES = 2;
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-3.1-flash-lite-image',
         contents: [{ parts: [{ text: prompt }] }],
         config: {
           imageConfig: { aspectRatio: "1:1" }
@@ -43,7 +43,12 @@ export class GeminiService {
 
       for (const part of response.candidates?.[0]?.content?.parts || []) {
         if (part.inlineData) {
+          const dataUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
           return {
+            id: `att-img-${Date.now()}`,
+            name: `aura-img-${Date.now()}.png`,
+            type: 'image',
+            url: dataUrl,
             mimeType: part.inlineData.mimeType,
             data: part.inlineData.data,
             fileName: `aura-img-${Date.now()}.png`
@@ -114,8 +119,12 @@ export class GeminiService {
         if (role === lastRole) continue; 
 
         const parts: any[] = [];
-        if (msg.attachment && supportedMultimodalTypes.includes(msg.attachment.mimeType)) {
-          parts.push({ inlineData: { mimeType: msg.attachment.mimeType, data: msg.attachment.data } });
+        const msgAtt = msg.attachments?.[0] || msg.attachment;
+        if (msgAtt?.mimeType && supportedMultimodalTypes.includes(msgAtt.mimeType)) {
+          const rawData = msgAtt.data || (msgAtt.url?.includes('base64,') ? msgAtt.url.split('base64,')[1] : '');
+          if (rawData) {
+            parts.push({ inlineData: { mimeType: msgAtt.mimeType, data: rawData } });
+          }
         }
         
         // Every turn must have at least one part. If no text and no attachment, skip.
@@ -131,8 +140,11 @@ export class GeminiService {
 
       // Add the current user turn
       const currentParts: any[] = [];
-      if (attachment && supportedMultimodalTypes.includes(attachment.mimeType)) {
-        currentParts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.data } });
+      if (attachment?.mimeType && supportedMultimodalTypes.includes(attachment.mimeType)) {
+        const rawData = attachment.data || (attachment.url?.includes('base64,') ? attachment.url.split('base64,')[1] : '');
+        if (rawData) {
+          currentParts.push({ inlineData: { mimeType: attachment.mimeType, data: rawData } });
+        }
       }
       
       // Ensure we have text even if it's just a space, but preferably meaningful
@@ -147,15 +159,19 @@ export class GeminiService {
 
       contents.push({ role: 'user', parts: currentParts });
 
+      const isGemini38 = modelToUse === APP_MODELS.PRIMARY;
+      const config: any = {
+        systemInstruction: this.getInstruction(userProfile, aiCharacter),
+        tools: [{ functionDeclarations: [generateImageTool] }]
+      };
+      if (isGemini38) {
+        config.thinkingConfig = { thinkingLevel: 'LOW' };
+      }
+
       const responseStream = await ai.models.generateContentStream({
         model: modelToUse,
         contents: contents,
-        config: {
-          systemInstruction: this.getInstruction(userProfile, aiCharacter),
-          temperature: 0.9,
-          topP: 0.95,
-          tools: [{ functionDeclarations: [generateImageTool] }]
-        },
+        config,
       });
 
       let fullText = "";
